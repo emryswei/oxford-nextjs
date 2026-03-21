@@ -250,7 +250,8 @@ function PdfReader({ filePath }: { filePath: string }) {
   const pdfDocRef = useRef<PdfDocument | null>(null);
   const pdfLoadingTaskRef = useRef<PdfLoadingTask | null>(null);
   const activeRenderTaskRef = useRef<PdfRenderTask | null>(null);
-  const lastRenderedWidthRef = useRef(0);
+  const lastRenderKeyRef = useRef("");
+  const initialFitScaleRef = useRef<number | null>(null);
 
   const [containerWidth, setContainerWidth] = useState(0);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -259,6 +260,9 @@ function PdfReader({ filePath }: { filePath: string }) {
   const [mapping, setMapping] = useState<InteractionMapping>({ definitions: [], choices: [] });
   const [openDefinitionKeys, setOpenDefinitionKeys] = useState<Record<string, boolean>>({});
   const [quizSelectionByGroup, setQuizSelectionByGroup] = useState<Record<string, string>>({});
+  const zoomLevel = 1;
+  const [canvasDisplayWidth, setCanvasDisplayWidth] = useState(0);
+  const [renderPixelRatio, setRenderPixelRatio] = useState(1);
 
   const choiceSummary = useMemo(() => {
     const byGroup = new Map<string, MappedChoice[]>();
@@ -296,8 +300,22 @@ function PdfReader({ filePath }: { filePath: string }) {
   }, []);
 
   useEffect(() => {
+    const updatePixelRatio = () => {
+      const next = Math.max(1, window.devicePixelRatio || 1);
+      setRenderPixelRatio((current) => (current === next ? current : next));
+    };
+
+    updatePixelRatio();
+    window.addEventListener("resize", updatePixelRatio);
+    return () => {
+      window.removeEventListener("resize", updatePixelRatio);
+    };
+  }, []);
+
+  useEffect(() => {
     let alive = true;
-    lastRenderedWidthRef.current = 0;
+    lastRenderKeyRef.current = "";
+    initialFitScaleRef.current = null;
     setStatus("loading");
     setErrorMessage("");
     setMapping({ definitions: [], choices: [] });
@@ -366,9 +384,6 @@ function PdfReader({ filePath }: { filePath: string }) {
       if (containerWidth <= 0) {
         return;
       }
-      if (lastRenderedWidthRef.current === containerWidth) {
-        return;
-      }
 
       try {
         if (activeRenderTaskRef.current) {
@@ -383,22 +398,49 @@ function PdfReader({ filePath }: { filePath: string }) {
 
         const page = await pdf.getPage(1);
         const baseViewport = page.getViewport({ scale: 1 });
-        const scale = containerWidth / baseViewport.width;
-        const viewport = page.getViewport({ scale });
+        if (initialFitScaleRef.current == null) {
+          initialFitScaleRef.current = containerWidth / baseViewport.width;
+        }
+        const displayScale = initialFitScaleRef.current * zoomLevel;
+        const renderKey = `${displayScale.toFixed(4)}-${renderPixelRatio.toFixed(2)}`;
+        if (lastRenderKeyRef.current === renderKey) {
+          return;
+        }
+        const renderScale = displayScale * renderPixelRatio;
+        const displayViewport = page.getViewport({ scale: displayScale });
+        const renderViewport = page.getViewport({ scale: renderScale });
+        const offscreenCanvas = document.createElement("canvas");
+        offscreenCanvas.width = Math.max(1, Math.round(renderViewport.width));
+        offscreenCanvas.height = Math.max(1, Math.round(renderViewport.height));
 
-        lastRenderedWidthRef.current = containerWidth;
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-
-        const renderTask = page.render({ canvas, viewport });
+        const renderTask = page.render({ canvas: offscreenCanvas, viewport: renderViewport });
         activeRenderTaskRef.current = renderTask;
         await renderTask.promise;
         if (activeRenderTaskRef.current === renderTask) {
           activeRenderTaskRef.current = null;
         }
 
+        const context = canvas.getContext("2d");
+        if (!context) {
+          throw new Error("PDF canvas context is not ready.");
+        }
+
+        canvas.width = offscreenCanvas.width;
+        canvas.height = offscreenCanvas.height;
+        canvas.style.width = `${displayViewport.width}px`;
+        canvas.style.height = `${displayViewport.height}px`;
+        setCanvasDisplayWidth(displayViewport.width);
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(offscreenCanvas, 0, 0);
+        lastRenderKeyRef.current = renderKey;
+
         const textContent = await page.getTextContent();
-        const segments = createTextSegments(textContent.items, viewport, scale, pdfjsLib);
+        const segments = createTextSegments(
+          textContent.items,
+          displayViewport,
+          displayScale,
+          pdfjsLib,
+        );
         const nextMapping = buildInteractionMapping(segments, INTERACTION_CONFIG);
         if (!alive) {
           return;
@@ -427,7 +469,7 @@ function PdfReader({ filePath }: { filePath: string }) {
         activeRenderTaskRef.current.cancel();
       }
     };
-  }, [containerWidth, documentVersion]);
+  }, [containerWidth, documentVersion, zoomLevel, renderPixelRatio]);
 
   useEffect(() => {
     return () => {
@@ -446,6 +488,7 @@ function PdfReader({ filePath }: { filePath: string }) {
   return (
     <section>
       <h2 style={{ marginBottom: "0.5rem" }}>PDF Preview</h2>
+      <p style={{ marginBottom: "0.75rem" }}>Use browser zoom (Ctrl + mouse wheel) for whole-page sync.</p>
       {status === "loading" && <p>Loading PDF...</p>}
       {status === "error" && <p style={{ color: "#b00020" }}>Error: {errorMessage}</p>}
 
@@ -458,10 +501,11 @@ function PdfReader({ filePath }: { filePath: string }) {
           overflow: "auto",
         }}
       >
-        <canvas ref={canvasRef} />
+        <canvas ref={canvasRef} style={{ display: "block", margin: "0 auto" }} />
 
         {mapping.definitions.map((entry) =>
           entry.anchors.map((anchor, index) => {
+            const overlayOffsetX = Math.max((containerWidth - canvasDisplayWidth) / 2, 0);
             const key = `${entry.config.id}-${index}`;
             const isOpen = Boolean(openDefinitionKeys[key]);
             return (
@@ -477,7 +521,7 @@ function PdfReader({ filePath }: { filePath: string }) {
                   }}
                   style={{
                     position: "absolute",
-                    left: `${anchor.x}px`,
+                    left: `${anchor.x + overlayOffsetX}px`,
                     top: `${anchor.y}px`,
                     width: `${anchor.width}px`,
                     height: `${anchor.height}px`,
@@ -493,9 +537,9 @@ function PdfReader({ filePath }: { filePath: string }) {
                     aria-live="polite"
                     style={{
                       position: "absolute",
-                      left: `${anchor.x}px`,
-                      top: `${Math.max(anchor.y - 94, 8)}px`,
-                      width: `${Math.max(anchor.width + 180, 220)}px`,
+                      left: `${anchor.x + overlayOffsetX}px`,
+                      top: `${Math.max(anchor.y - 94 * zoomLevel, 8)}px`,
+                      width: `${Math.max(anchor.width + 180 * zoomLevel, 220 * zoomLevel)}px`,
                       background: "#fff",
                       border: "1px solid #1f1f1f",
                       boxShadow: "0 4px 14px rgba(0,0,0,0.18)",
@@ -504,15 +548,22 @@ function PdfReader({ filePath }: { filePath: string }) {
                   >
                     <div
                       style={{
-                        padding: "0.5rem 0.65rem",
+                        padding: `${0.5 * zoomLevel}rem ${0.65 * zoomLevel}rem`,
                         borderBottom: "1px solid #ddd",
                         fontWeight: 700,
+                        fontSize: `${Math.max(12, 16 * zoomLevel)}px`,
                         textTransform: "capitalize",
                       }}
                     >
                       {entry.config.title}
                     </div>
-                    <div style={{ padding: "0.55rem 0.65rem", lineHeight: 1.35 }}>
+                    <div
+                      style={{
+                        padding: `${0.55 * zoomLevel}rem ${0.65 * zoomLevel}rem`,
+                        lineHeight: 1.35,
+                        fontSize: `${Math.max(12, 14 * zoomLevel)}px`,
+                      }}
+                    >
                       {entry.config.description}
                     </div>
                   </div>
@@ -523,6 +574,7 @@ function PdfReader({ filePath }: { filePath: string }) {
         )}
 
         {mapping.choices.map((choice) => {
+          const overlayOffsetX = Math.max((containerWidth - canvasDisplayWidth) / 2, 0);
           const { groupId } = choice.config;
           const selectedId = quizSelectionByGroup[groupId];
           const isLocked = Boolean(selectedId);
@@ -545,7 +597,7 @@ function PdfReader({ filePath }: { filePath: string }) {
               }}
               style={{
                 position: "absolute",
-                left: `${choice.anchor.x}px`,
+                left: `${choice.anchor.x + overlayOffsetX}px`,
                 top: `${choice.anchor.y}px`,
                 width: `${choice.anchor.width}px`,
                 height: `${choice.anchor.height}px`,
@@ -565,7 +617,7 @@ function PdfReader({ filePath }: { filePath: string }) {
                     top: "50%",
                     transform: "translate(-50%, -50%)",
                     textAlign: "center",
-                    fontSize: "20px",
+                    fontSize: `${Math.max(14, 20 * zoomLevel)}px`,
                     lineHeight: 1,
                   }}
                 >
