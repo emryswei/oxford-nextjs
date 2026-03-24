@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useRef, useState } from "react";
 
@@ -14,11 +14,20 @@ const PAGE_NUMBER = 1;
 type PdfViewport = {
   width: number;
   height: number;
+  transform: number[];
+};
+
+type PdfTextItem = {
+  str?: string;
+  width?: number;
+  height?: number;
+  transform?: number[];
 };
 
 type PdfPage = {
   getViewport: (params: { scale: number }) => PdfViewport;
   render: (params: { canvas: HTMLCanvasElement; viewport: PdfViewport }) => PdfRenderTask;
+  getTextContent: () => Promise<{ items: PdfTextItem[] }>;
 };
 
 type PdfRenderTask = {
@@ -38,6 +47,7 @@ type PdfLoadingTask = {
 
 type PdfJsModule = {
   GlobalWorkerOptions: { workerSrc: string };
+  Util: { transform: (a: number[], b: number[]) => number[] };
   getDocument: (src: string) => PdfLoadingTask;
 };
 
@@ -68,7 +78,120 @@ type PdfIndexResponse = {
   basePageWidth: number;
   basePageHeight: number;
   anchorsByRuleId: Record<string, Anchor[]>;
+  fallback?: boolean;
 };
+
+type TextSegment = {
+  text: string;
+  lowerText: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+function isAsciiLetter(char: string | undefined): boolean {
+  if (!char) {
+    return false;
+  }
+  return (char >= "a" && char <= "z") || (char >= "A" && char <= "Z");
+}
+
+function findMatchIndices(source: string, target: string, wholeWord: boolean): number[] {
+  const indices: number[] = [];
+  if (!target) {
+    return indices;
+  }
+
+  let from = 0;
+  while (from < source.length) {
+    const index = source.indexOf(target, from);
+    if (index === -1) {
+      break;
+    }
+
+    if (!wholeWord) {
+      indices.push(index);
+      from = index + target.length;
+      continue;
+    }
+
+    const before = source[index - 1];
+    const after = source[index + target.length];
+    if (!isAsciiLetter(before) && !isAsciiLetter(after)) {
+      indices.push(index);
+    }
+    from = index + target.length;
+  }
+
+  return indices;
+}
+
+function createTextSegments(
+  items: PdfTextItem[],
+  viewport: PdfViewport,
+  pdfjsLib: PdfJsModule,
+): TextSegment[] {
+  const segments: TextSegment[] = [];
+
+  for (const item of items) {
+    if (typeof item.str !== "string" || !item.str || !Array.isArray(item.transform)) {
+      continue;
+    }
+
+    const transform = pdfjsLib.Util.transform(viewport.transform, item.transform);
+    const fontSize = Math.hypot(transform[2], transform[3]);
+
+    segments.push({
+      text: item.str,
+      lowerText: item.str.toLowerCase(),
+      x: transform[4],
+      y: transform[5] - fontSize,
+      width: Math.max(item.width ?? 1, 1),
+      height: Math.max(fontSize, item.height ?? fontSize),
+    });
+  }
+
+  return segments;
+}
+
+function computeAnchorsFromTextSegments(segments: TextSegment[]): Record<string, Anchor[]> {
+  const anchorsByRuleId: Record<string, Anchor[]> = {};
+
+  for (const entry of INTERACTION_CONFIG) {
+    anchorsByRuleId[entry.id] = [];
+  }
+
+  for (const segment of segments) {
+    const safeLength = Math.max(segment.text.length, 1);
+
+    for (const entry of INTERACTION_CONFIG) {
+      if (entry.match.occurrence === "first" && anchorsByRuleId[entry.id].length > 0) {
+        continue;
+      }
+
+      const target = entry.match.text.toLowerCase();
+      const indices = findMatchIndices(segment.lowerText, target, Boolean(entry.match.wholeWord));
+      if (indices.length === 0) {
+        continue;
+      }
+
+      const matchedIndices = entry.match.occurrence === "first" ? [indices[0]] : indices;
+      for (const startIndex of matchedIndices) {
+        const startRatio = startIndex / safeLength;
+        const endRatio = (startIndex + target.length) / safeLength;
+        anchorsByRuleId[entry.id].push({
+          x: segment.x + segment.width * startRatio,
+          y: segment.y,
+          width: Math.max(segment.width * (endRatio - startRatio), 1),
+          height: segment.height,
+        });
+      }
+    }
+  }
+
+  return anchorsByRuleId;
+}
 
 function scaleAnchor(anchor: Anchor, scale: number): Anchor {
   return {
@@ -117,7 +240,7 @@ function PdfReader({ filePath }: { filePath: string }) {
   const pdfLoadingTaskRef = useRef<PdfLoadingTask | null>(null);
   const activeRenderTaskRef = useRef<PdfRenderTask | null>(null);
   const lastRenderKeyRef = useRef("");
-  
+
   const [containerWidth, setContainerWidth] = useState(0);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [errorMessage, setErrorMessage] = useState("");
@@ -231,26 +354,40 @@ function PdfReader({ filePath }: { filePath: string }) {
         }
         pdfDocRef.current = pdf;
 
-        let indexData: PdfIndexResponse | null = null;
+        const page = await pdf.getPage(PAGE_NUMBER);
+        const baseViewport = page.getViewport({ scale: 1 });
+
+        let resolvedAnchorsByRuleId: Record<string, Anchor[]> = {};
+        let resolvedBasePageWidth = baseViewport.width;
+
         if (indexResponse.ok) {
-          indexData = (await indexResponse.json()) as PdfIndexResponse;
+          const indexData = (await indexResponse.json()) as PdfIndexResponse;
+          resolvedAnchorsByRuleId = indexData.anchorsByRuleId ?? {};
+          if (indexData.basePageWidth > 0) {
+            resolvedBasePageWidth = indexData.basePageWidth;
+          }
+
+          const shouldUseClientFallback =
+            indexData.fallback === true || indexData.basePageWidth <= 0;
+          if (shouldUseClientFallback) {
+            const textContent = await page.getTextContent();
+            const segments = createTextSegments(textContent.items, baseViewport, pdfjsLib);
+            resolvedAnchorsByRuleId = computeAnchorsFromTextSegments(segments);
+            resolvedBasePageWidth = baseViewport.width;
+          }
         } else {
-          console.warn(`PDF index request failed (${indexResponse.status}); using client fallback.`);
+          const textContent = await page.getTextContent();
+          const segments = createTextSegments(textContent.items, baseViewport, pdfjsLib);
+          resolvedAnchorsByRuleId = computeAnchorsFromTextSegments(segments);
+          resolvedBasePageWidth = baseViewport.width;
         }
 
         if (!alive) {
           return;
         }
 
-        const page = await pdf.getPage(PAGE_NUMBER);
-        const fallbackViewport = page.getViewport({ scale: 1 });
-
-        setAnchorsByRuleId(indexData?.anchorsByRuleId ?? {});
-        setBasePageWidth(
-          indexData?.basePageWidth && indexData.basePageWidth > 0
-            ? indexData.basePageWidth
-            : fallbackViewport.width,
-        );
+        setAnchorsByRuleId(resolvedAnchorsByRuleId);
+        setBasePageWidth(resolvedBasePageWidth);
         setDocumentVersion((value) => value + 1);
       } catch (error) {
         if (!alive) {
@@ -522,9 +659,3 @@ export default function Home() {
     </main>
   );
 }
-
-
-
-
-
-

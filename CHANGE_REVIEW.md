@@ -107,3 +107,21 @@
 | --- | --- | --- |
 | src/app/api/pdf-index/route.ts | Modified | Return fallback index payload instead of HTTP 500 when backend indexing throws. |
 | src/app/page.tsx | Modified | Accept missing/failed index response and derive base PDF width from client-loaded PDF to keep rendering functional. |
+
+---
+
+- Date: 2026-03-24 18:49:38 +08:00
+- Repository: D:/oxford-nextjs
+- Branch: master
+- Scope: pre-push review
+
+## Summary (Appended)
+
+- Total changed paths: 1
+- Change intent: Keep interactions working in production by computing PDF anchors client-side when backend index API returns fallback mode.
+
+## File Changes (Current Working Tree)
+
+| File | Type | Reason |
+| --- | --- | --- |
+| src/app/page.tsx | Modified | Add client-side text mapping fallback using pdf.js text content to generate anchors when /api/pdf-index cannot index on server. |
