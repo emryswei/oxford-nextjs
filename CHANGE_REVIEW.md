@@ -125,3 +125,21 @@
 | File | Type | Reason |
 | --- | --- | --- |
 | src/app/page.tsx | Modified | Add client-side text mapping fallback using pdf.js text content to generate anchors when /api/pdf-index cannot index on server. |
+
+---
+
+- Date: 2026-03-24 19:18:35 +08:00
+- Repository: D:/oxford-nextjs
+- Branch: master
+- Scope: pre-push review
+
+## Summary (Appended)
+
+- Total changed paths: 1
+- Change intent: Reduce perceived PDF load latency by rendering as soon as document bytes are ready while index mapping resolves asynchronously.
+
+## File Changes (Current Working Tree)
+
+| File | Type | Reason |
+| --- | --- | --- |
+| src/app/page.tsx | Modified | Decouple initial canvas render from /api/pdf-index latency and update interaction mapping without forced redraw once anchors arrive. |

@@ -348,7 +348,7 @@ function PdfReader({ filePath }: { filePath: string }) {
           signal: abortController.signal,
         });
 
-        const [pdf, indexResponse] = await Promise.all([loadingTask.promise, indexPromise]);
+        const pdf = await loadingTask.promise;
         if (!alive) {
           return;
         }
@@ -356,30 +356,35 @@ function PdfReader({ filePath }: { filePath: string }) {
 
         const page = await pdf.getPage(PAGE_NUMBER);
         const baseViewport = page.getViewport({ scale: 1 });
+        setBasePageWidth(baseViewport.width);
+        setDocumentVersion((value) => value + 1);
 
         let resolvedAnchorsByRuleId: Record<string, Anchor[]> = {};
-        let resolvedBasePageWidth = baseViewport.width;
 
-        if (indexResponse.ok) {
-          const indexData = (await indexResponse.json()) as PdfIndexResponse;
-          resolvedAnchorsByRuleId = indexData.anchorsByRuleId ?? {};
-          if (indexData.basePageWidth > 0) {
-            resolvedBasePageWidth = indexData.basePageWidth;
-          }
+        try {
+          const indexResponse = await indexPromise;
+          if (indexResponse.ok) {
+            const indexData = (await indexResponse.json()) as PdfIndexResponse;
+            resolvedAnchorsByRuleId = indexData.anchorsByRuleId ?? {};
 
-          const shouldUseClientFallback =
-            indexData.fallback === true || indexData.basePageWidth <= 0;
-          if (shouldUseClientFallback) {
+            const shouldUseClientFallback =
+              indexData.fallback === true || indexData.basePageWidth <= 0;
+            if (shouldUseClientFallback) {
+              const textContent = await page.getTextContent();
+              const segments = createTextSegments(textContent.items, baseViewport, pdfjsLib);
+              resolvedAnchorsByRuleId = computeAnchorsFromTextSegments(segments);
+            }
+          } else {
             const textContent = await page.getTextContent();
             const segments = createTextSegments(textContent.items, baseViewport, pdfjsLib);
             resolvedAnchorsByRuleId = computeAnchorsFromTextSegments(segments);
-            resolvedBasePageWidth = baseViewport.width;
           }
-        } else {
-          const textContent = await page.getTextContent();
-          const segments = createTextSegments(textContent.items, baseViewport, pdfjsLib);
-          resolvedAnchorsByRuleId = computeAnchorsFromTextSegments(segments);
-          resolvedBasePageWidth = baseViewport.width;
+        } catch (indexError) {
+          if (!(indexError instanceof DOMException && indexError.name === "AbortError")) {
+            const textContent = await page.getTextContent();
+            const segments = createTextSegments(textContent.items, baseViewport, pdfjsLib);
+            resolvedAnchorsByRuleId = computeAnchorsFromTextSegments(segments);
+          }
         }
 
         if (!alive) {
@@ -387,8 +392,6 @@ function PdfReader({ filePath }: { filePath: string }) {
         }
 
         setAnchorsByRuleId(resolvedAnchorsByRuleId);
-        setBasePageWidth(resolvedBasePageWidth);
-        setDocumentVersion((value) => value + 1);
       } catch (error) {
         if (!alive) {
           return;
@@ -437,6 +440,8 @@ function PdfReader({ filePath }: { filePath: string }) {
         const displayScale = containerWidth / basePageWidth;
         const renderKey = `${displayScale.toFixed(4)}-${renderPixelRatio.toFixed(2)}`;
         if (lastRenderKeyRef.current === renderKey) {
+          setMapping(buildInteractionMapping(anchorsByRuleId, displayScale));
+          setStatus("ready");
           return;
         }
 
