@@ -70,3 +70,21 @@
 | --- | --- | --- |
 | src/app/api/pdf-index/route.ts | Modified | Pass deployment origin (aseUrl) to indexer so it can fetch static PDF from same host when fs path is unavailable. |
 | src/lib/server/pdf-indexer.ts | Modified | Add static-host fetch fallback for PDF bytes and keep indexing/caching working on Vercel serverless. |
+
+---
+
+- Date: 2026-03-24 17:20:09 +08:00
+- Repository: D:/oxford-nextjs
+- Branch: master
+- Scope: pre-push review
+
+## Summary (Appended)
+
+- Total changed paths: 1
+- Change intent: Improve Vercel runtime compatibility by removing server worker-module dependency in backend PDF parsing.
+
+## File Changes (Current Working Tree)
+
+| File | Type | Reason |
+| --- | --- | --- |
+| src/lib/server/pdf-indexer.ts | Modified | Use pdf.js in disableWorker mode without importing pdf.worker.mjs, which can fail in serverless bundling/runtime. |

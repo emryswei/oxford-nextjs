@@ -219,15 +219,14 @@ export async function buildPdfIndex(params: {
     const pdfData = useFilesystem
       ? new Uint8Array(await readFile(absolutePath))
       : await loadPdfBytesFromStaticHost(filePath, baseUrl as string);
-    const workerModule = (await import("pdfjs-dist/legacy/build/pdf.worker.mjs")) as {
-      WorkerMessageHandler: unknown;
-    };
-    (globalThis as { pdfjsWorker?: { WorkerMessageHandler: unknown } }).pdfjsWorker = {
-      WorkerMessageHandler: workerModule.WorkerMessageHandler,
-    };
-
     const pdfjsLib = (await import("pdfjs-dist/legacy/build/pdf.mjs")) as {
-      getDocument: (input: { data: Uint8Array; disableWorker: boolean }) => {
+      getDocument: (input: {
+        data: Uint8Array;
+        disableWorker: boolean;
+        disableFontFace?: boolean;
+        isEvalSupported?: boolean;
+        useSystemFonts?: boolean;
+      }) => {
         promise: Promise<{
           getPage: (n: number) => Promise<{
             getViewport: (params: { scale: number }) => { width: number; height: number; transform: number[] };
@@ -245,6 +244,9 @@ export async function buildPdfIndex(params: {
     const loadingTask = pdfjsLib.getDocument({
       data: pdfData,
       disableWorker: true,
+      disableFontFace: true,
+      isEvalSupported: false,
+      useSystemFonts: false,
     });
 
     try {
@@ -350,6 +352,10 @@ export async function buildPdfIndex(params: {
     inFlight.delete(cacheKey);
   }
 }
+
+
+
+
 
 
 
