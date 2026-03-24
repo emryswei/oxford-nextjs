@@ -231,17 +231,26 @@ function PdfReader({ filePath }: { filePath: string }) {
         }
         pdfDocRef.current = pdf;
 
-        if (!indexResponse.ok) {
-          throw new Error(`Failed to fetch PDF index (${indexResponse.status}).`);
+        let indexData: PdfIndexResponse | null = null;
+        if (indexResponse.ok) {
+          indexData = (await indexResponse.json()) as PdfIndexResponse;
+        } else {
+          console.warn(`PDF index request failed (${indexResponse.status}); using client fallback.`);
         }
 
-        const indexData = (await indexResponse.json()) as PdfIndexResponse;
         if (!alive) {
           return;
         }
 
-        setAnchorsByRuleId(indexData.anchorsByRuleId ?? {});
-        setBasePageWidth(indexData.basePageWidth ?? 0);
+        const page = await pdf.getPage(PAGE_NUMBER);
+        const fallbackViewport = page.getViewport({ scale: 1 });
+
+        setAnchorsByRuleId(indexData?.anchorsByRuleId ?? {});
+        setBasePageWidth(
+          indexData?.basePageWidth && indexData.basePageWidth > 0
+            ? indexData.basePageWidth
+            : fallbackViewport.width,
+        );
         setDocumentVersion((value) => value + 1);
       } catch (error) {
         if (!alive) {
@@ -513,6 +522,8 @@ export default function Home() {
     </main>
   );
 }
+
+
 
 
 

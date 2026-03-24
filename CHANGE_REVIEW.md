@@ -88,3 +88,22 @@
 | File | Type | Reason |
 | --- | --- | --- |
 | src/lib/server/pdf-indexer.ts | Modified | Use pdf.js in disableWorker mode without importing pdf.worker.mjs, which can fail in serverless bundling/runtime. |
+
+---
+
+- Date: 2026-03-24 18:39:05 +08:00
+- Repository: D:/oxford-nextjs
+- Branch: master
+- Scope: pre-push review
+
+## Summary (Appended)
+
+- Total changed paths: 2
+- Change intent: Eliminate production 500 from index API by returning safe fallback and allowing client-side PDF render when backend index is unavailable.
+
+## File Changes (Current Working Tree)
+
+| File | Type | Reason |
+| --- | --- | --- |
+| src/app/api/pdf-index/route.ts | Modified | Return fallback index payload instead of HTTP 500 when backend indexing throws. |
+| src/app/page.tsx | Modified | Accept missing/failed index response and derive base PDF width from client-loaded PDF to keep rendering functional. |

@@ -73,29 +73,53 @@ function validateRequestBody(body: RequestBody): { ok: true } | { ok: false; err
   return { ok: true };
 }
 
+function createFallbackIndex(
+  pageNumber: number,
+  rules: Array<{ id: string; match: MatchRule }>,
+) {
+  const anchorsByRuleId: Record<string, Array<{ x: number; y: number; width: number; height: number }>> = {};
+  for (const rule of rules) {
+    anchorsByRuleId[rule.id] = [];
+  }
+
+  return {
+    pageNumber,
+    basePageWidth: 0,
+    basePageHeight: 0,
+    anchorsByRuleId,
+    fallback: true,
+  };
+}
+
 export async function POST(request: Request) {
+  let body: RequestBody;
   try {
-    const body = (await request.json()) as RequestBody;
-    const validation = validateRequestBody(body);
-    if (!validation.ok) {
-      return NextResponse.json({ error: validation.error }, { status: 400 });
-    }
+    body = (await request.json()) as RequestBody;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+  }
 
-    const filePath = body.filePath as string;
-    const pageNumber = body.pageNumber ?? 1;
-    const rules = body.rules as Array<{ id: string; match: MatchRule }>;
-    const baseUrl = new URL(request.url).origin;
+  const validation = validateRequestBody(body);
+  if (!validation.ok) {
+    return NextResponse.json({ error: validation.error }, { status: 400 });
+  }
 
+  const filePath = body.filePath as string;
+  const pageNumber = body.pageNumber ?? 1;
+  const rules = body.rules as Array<{ id: string; match: MatchRule }>;
+  const baseUrl = new URL(request.url).origin;
+  const fallbackResult = createFallbackIndex(pageNumber, rules);
+
+  try {
     const result = await buildPdfIndex({
       filePath,
       pageNumber,
       rules,
       baseUrl,
     });
-
     return NextResponse.json(result);
   } catch (error) {
-    console.error("pdf-index route failed", error);
-    return NextResponse.json({ error: "Failed to index PDF." }, { status: 500 });
+    console.error("pdf-index route failed, returning fallback", error);
+    return NextResponse.json(fallbackResult);
   }
 }
