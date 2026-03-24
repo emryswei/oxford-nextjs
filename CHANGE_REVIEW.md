@@ -125,3 +125,21 @@
 | File | Type | Reason |
 | --- | --- | --- |
 | src/app/page.tsx | Modified | Add client-side text mapping fallback using pdf.js text content to generate anchors when /api/pdf-index cannot index on server. |
+
+---
+
+- Date: 2026-03-24 19:11:02 +08:00
+- Repository: D:/oxford-nextjs
+- Branch: master
+- Scope: pre-push review
+
+## Summary (Appended)
+
+- Total changed paths: 1
+- Change intent: Improve perceived PDF load speed and make answer feedback more visible with larger colored markers.
+
+## File Changes (Current Working Tree)
+
+| File | Type | Reason |
+| --- | --- | --- |
+| src/app/page.tsx | Modified | Start rendering PDF immediately after document load (do not wait for index response) and show larger green tick/red cross for selected choice feedback. |

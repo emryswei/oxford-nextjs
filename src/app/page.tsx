@@ -348,7 +348,7 @@ function PdfReader({ filePath }: { filePath: string }) {
           signal: abortController.signal,
         });
 
-        const [pdf, indexResponse] = await Promise.all([loadingTask.promise, indexPromise]);
+        const pdf = await loadingTask.promise;
         if (!alive) {
           return;
         }
@@ -356,30 +356,34 @@ function PdfReader({ filePath }: { filePath: string }) {
 
         const page = await pdf.getPage(PAGE_NUMBER);
         const baseViewport = page.getViewport({ scale: 1 });
+        setBasePageWidth(baseViewport.width);
+        setDocumentVersion((value) => value + 1);
 
         let resolvedAnchorsByRuleId: Record<string, Anchor[]> = {};
-        let resolvedBasePageWidth = baseViewport.width;
+        try {
+          const indexResponse = await indexPromise;
+          if (indexResponse.ok) {
+            const indexData = (await indexResponse.json()) as PdfIndexResponse;
+            resolvedAnchorsByRuleId = indexData.anchorsByRuleId ?? {};
 
-        if (indexResponse.ok) {
-          const indexData = (await indexResponse.json()) as PdfIndexResponse;
-          resolvedAnchorsByRuleId = indexData.anchorsByRuleId ?? {};
-          if (indexData.basePageWidth > 0) {
-            resolvedBasePageWidth = indexData.basePageWidth;
-          }
-
-          const shouldUseClientFallback =
-            indexData.fallback === true || indexData.basePageWidth <= 0;
-          if (shouldUseClientFallback) {
+            const shouldUseClientFallback =
+              indexData.fallback === true || indexData.basePageWidth <= 0;
+            if (shouldUseClientFallback) {
+              const textContent = await page.getTextContent();
+              const segments = createTextSegments(textContent.items, baseViewport, pdfjsLib);
+              resolvedAnchorsByRuleId = computeAnchorsFromTextSegments(segments);
+            }
+          } else {
             const textContent = await page.getTextContent();
             const segments = createTextSegments(textContent.items, baseViewport, pdfjsLib);
             resolvedAnchorsByRuleId = computeAnchorsFromTextSegments(segments);
-            resolvedBasePageWidth = baseViewport.width;
           }
-        } else {
-          const textContent = await page.getTextContent();
-          const segments = createTextSegments(textContent.items, baseViewport, pdfjsLib);
-          resolvedAnchorsByRuleId = computeAnchorsFromTextSegments(segments);
-          resolvedBasePageWidth = baseViewport.width;
+        } catch (indexError) {
+          if (!(indexError instanceof DOMException && indexError.name === "AbortError")) {
+            const textContent = await page.getTextContent();
+            const segments = createTextSegments(textContent.items, baseViewport, pdfjsLib);
+            resolvedAnchorsByRuleId = computeAnchorsFromTextSegments(segments);
+          }
         }
 
         if (!alive) {
@@ -387,8 +391,6 @@ function PdfReader({ filePath }: { filePath: string }) {
         }
 
         setAnchorsByRuleId(resolvedAnchorsByRuleId);
-        setBasePageWidth(resolvedBasePageWidth);
-        setDocumentVersion((value) => value + 1);
       } catch (error) {
         if (!alive) {
           return;
@@ -599,7 +601,8 @@ function PdfReader({ filePath }: { filePath: string }) {
           const selectedId = quizSelectionByGroup[groupId];
           const isLocked = Boolean(selectedId);
           const isSelected = selectedId === choice.config.id;
-          const marker = isSelected ? (choice.config.isCorrect ? "O" : "X") : "";
+          const marker = isSelected ? (choice.config.isCorrect ? "✓" : "✕") : "";
+          const markerColor = choice.config.isCorrect ? "#15803d" : "#b91c1c";
 
           return (
             <button
@@ -637,8 +640,11 @@ function PdfReader({ filePath }: { filePath: string }) {
                     top: "50%",
                     transform: "translate(-50%, -50%)",
                     textAlign: "center",
-                    fontSize: "20px",
+                    fontSize: "40px",
+                    fontWeight: 800,
+                    color: markerColor,
                     lineHeight: 1,
+                    textShadow: "0 2px 6px rgba(0, 0, 0, 0.25)",
                   }}
                 >
                   {marker}
