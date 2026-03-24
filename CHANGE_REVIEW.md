@@ -197,3 +197,21 @@
 | File | Type | Reason |
 | --- | --- | --- |
 | src/app/page.tsx | Modified | Use clientWidth for scale sync and force overflowX: hidden to prevent border/overlay-induced horizontal scrolling. |
+
+---
+
+- Date: 2026-03-24 22:01:03 +08:00
+- Repository: D:/oxford-nextjs
+- Branch: master
+- Scope: pre-push review
+
+## Summary (Appended)
+
+- Total changed paths: 1
+- Change intent: Add clear success/failure feedback for quiz choices with distinct full-page explosion effects and green/red markers.
+
+## File Changes (Current Working Tree)
+
+| File | Type | Reason |
+| --- | --- | --- |
+| src/app/page.tsx | Modified | Use green tick for correct, red cross for wrong, and trigger distinct whole-page particle effects for success vs failure (including explicit Wrong badge). |

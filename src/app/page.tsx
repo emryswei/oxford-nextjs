@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 import {
   type ChoiceInteractionConfig,
@@ -71,6 +71,27 @@ type MappedChoice = {
 type InteractionMapping = {
   definitions: MappedDefinition[];
   choices: MappedChoice[];
+};
+
+type CelebrationKind = "success" | "error";
+
+type CelebrationParticle = {
+  dx: number;
+  dy: number;
+  size: number;
+  color: string;
+  delayMs: number;
+  durationMs: number;
+  rotationDeg: number;
+  round: boolean;
+};
+
+type CelebrationEffect = {
+  id: string;
+  x: number;
+  y: number;
+  kind: CelebrationKind;
+  particles: CelebrationParticle[];
 };
 
 type PdfIndexResponse = {
@@ -240,6 +261,7 @@ function PdfReader({ filePath }: { filePath: string }) {
   const pdfLoadingTaskRef = useRef<PdfLoadingTask | null>(null);
   const activeRenderTaskRef = useRef<PdfRenderTask | null>(null);
   const lastRenderKeyRef = useRef("");
+  const celebrationTimeoutsRef = useRef<number[]>([]);
 
   const [containerWidth, setContainerWidth] = useState(0);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -252,6 +274,42 @@ function PdfReader({ filePath }: { filePath: string }) {
   const [renderPixelRatio, setRenderPixelRatio] = useState(1);
   const [anchorsByRuleId, setAnchorsByRuleId] = useState<Record<string, Anchor[]>>({});
   const [basePageWidth, setBasePageWidth] = useState(0);
+  const [celebrationEffects, setCelebrationEffects] = useState<CelebrationEffect[]>([]);
+
+  const triggerCelebration = (x: number, y: number, kind: CelebrationKind) => {
+    const colors =
+      kind === "success"
+        ? ["#22c55e", "#84cc16", "#f59e0b", "#06b6d4", "#3b82f6", "#f97316"]
+        : ["#ef4444", "#dc2626", "#f97316", "#fb7185", "#f43f5e", "#b91c1c"];
+    const particleCount = kind === "success" ? 96 : 84;
+    const maxDistance = Math.hypot(window.innerWidth, window.innerHeight) * 0.72;
+    const particles: CelebrationParticle[] = Array.from({ length: particleCount }).map(() => {
+      const angle = Math.random() * Math.PI * 2;
+      const distance = maxDistance * (0.35 + Math.random() * 0.65);
+      return {
+        dx: Math.cos(angle) * distance,
+        dy: Math.sin(angle) * distance,
+        size: 6 + Math.random() * 10,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        delayMs: Math.random() * 120,
+        durationMs: 700 + Math.random() * 700,
+        rotationDeg: Math.floor(Math.random() * 360),
+        round: Math.random() > 0.35,
+      };
+    });
+
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setCelebrationEffects((prev) => [...prev, { id, x, y, kind, particles }]);
+
+    const timeoutId = window.setTimeout(() => {
+      setCelebrationEffects((prev) => prev.filter((effect) => effect.id !== id));
+      celebrationTimeoutsRef.current = celebrationTimeoutsRef.current.filter(
+        (item) => item !== timeoutId,
+      );
+    }, 1700);
+
+    celebrationTimeoutsRef.current.push(timeoutId);
+  };
 
   useEffect(() => {
     const container = containerRef.current;
@@ -302,8 +360,13 @@ function PdfReader({ filePath }: { filePath: string }) {
     setMapping({ definitions: [], choices: [] });
     setAnchorsByRuleId({});
     setBasePageWidth(0);
+    setCelebrationEffects([]);
     setOpenDefinitionKeys({});
     setQuizSelectionByGroup({});
+    for (const timeoutId of celebrationTimeoutsRef.current) {
+      window.clearTimeout(timeoutId);
+    }
+    celebrationTimeoutsRef.current = [];
 
     if (pdfLoadingTaskRef.current) {
       pdfLoadingTaskRef.current.destroy();
@@ -510,6 +573,10 @@ function PdfReader({ filePath }: { filePath: string }) {
       if (activeRenderTaskRef.current) {
         activeRenderTaskRef.current.cancel();
       }
+      for (const timeoutId of celebrationTimeoutsRef.current) {
+        window.clearTimeout(timeoutId);
+      }
+      celebrationTimeoutsRef.current = [];
     };
   }, []);
 
@@ -608,14 +675,15 @@ function PdfReader({ filePath }: { filePath: string }) {
           const selectedId = quizSelectionByGroup[groupId];
           const isLocked = Boolean(selectedId);
           const isSelected = selectedId === choice.config.id;
-          const marker = isSelected ? (choice.config.isCorrect ? "O" : "X") : "";
+          const marker = isSelected ? (choice.config.isCorrect ? "✓" : "✕") : "";
+          const markerColor = choice.config.isCorrect ? "#15803d" : "#b91c1c";
 
           return (
             <button
               key={choice.config.id}
               type="button"
               aria-label={`Select ${choice.config.match.text}`}
-              onClick={() => {
+              onClick={(event) => {
                 if (isLocked) {
                   return;
                 }
@@ -623,6 +691,12 @@ function PdfReader({ filePath }: { filePath: string }) {
                   ...prev,
                   [groupId]: choice.config.id,
                 }));
+                const targetRect = event.currentTarget.getBoundingClientRect();
+                triggerCelebration(
+                  targetRect.left + targetRect.width / 2,
+                  targetRect.top + targetRect.height / 2,
+                  choice.config.isCorrect ? "success" : "error",
+                );
               }}
               style={{
                 position: "absolute",
@@ -646,7 +720,10 @@ function PdfReader({ filePath }: { filePath: string }) {
                     top: "50%",
                     transform: "translate(-50%, -50%)",
                     textAlign: "center",
-                    fontSize: "20px",
+                    fontSize: "38px",
+                    fontWeight: 800,
+                    color: markerColor,
+                    textShadow: "0 2px 6px rgba(0, 0, 0, 0.25)",
                     lineHeight: 1,
                   }}
                 >
@@ -656,7 +733,179 @@ function PdfReader({ filePath }: { filePath: string }) {
             </button>
           );
         })}
+
       </div>
+
+      <div className="celebrationFullPage">
+        {celebrationEffects.map((effect) => (
+          <div
+            key={effect.id}
+            className="celebrationBurst"
+            style={
+              {
+                left: `${effect.x}px`,
+                top: `${effect.y}px`,
+                "--wave-color":
+                  effect.kind === "success"
+                    ? "rgba(255,255,255,0.78)"
+                    : "rgba(248,113,113,0.85)",
+              } as CSSProperties
+            }
+          >
+            <span className={`celebrationCore ${effect.kind}`}>
+              {effect.kind === "success" ? "🎉" : "❌"}
+            </span>
+            {effect.kind === "error" && <span className="celebrationBadge">Wrong</span>}
+            <span className="celebrationWave" />
+            {effect.particles.map((particle, index) => (
+              <span
+                key={`${effect.id}-particle-${index}`}
+                className="celebrationParticle"
+                style={
+                  {
+                    "--burst-dx": `${particle.dx}px`,
+                    "--burst-dy": `${particle.dy}px`,
+                    "--burst-delay": `${particle.delayMs}ms`,
+                    "--burst-duration": `${particle.durationMs}ms`,
+                    "--burst-rotate": `${particle.rotationDeg}deg`,
+                    width: `${particle.size}px`,
+                    height: `${particle.size}px`,
+                    borderRadius: particle.round ? "999px" : "2px",
+                    backgroundColor: particle.color,
+                  } as CSSProperties
+                }
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+
+      <style jsx>{`
+        .celebrationFullPage {
+          position: fixed;
+          inset: 0;
+          pointer-events: none;
+          z-index: 9999;
+          overflow: hidden;
+        }
+
+        .celebrationBurst {
+          position: fixed;
+          transform: translate(-50%, -50%);
+          pointer-events: none;
+          z-index: 10000;
+        }
+
+        .celebrationCore {
+          position: absolute;
+          left: 0;
+          top: 0;
+          transform: translate(-50%, -50%);
+          font-size: 40px;
+          animation: burstCore 1.2s ease-out forwards;
+          text-shadow: 0 3px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        .celebrationCore.error {
+          filter: saturate(1.2);
+        }
+
+        .celebrationBadge {
+          position: absolute;
+          left: 0;
+          top: 0;
+          transform: translate(-50%, calc(-50% + 52px));
+          padding: 4px 10px;
+          border: 1px solid rgba(255, 255, 255, 0.55);
+          border-radius: 999px;
+          font-size: 13px;
+          font-weight: 800;
+          letter-spacing: 0.05em;
+          text-transform: uppercase;
+          color: #fff;
+          background: rgba(127, 29, 29, 0.78);
+          animation: burstBadge 1.2s ease-out forwards;
+          box-shadow: 0 3px 10px rgba(0, 0, 0, 0.28);
+        }
+
+        .celebrationWave {
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 20px;
+          height: 20px;
+          border: 4px solid var(--wave-color);
+          border-radius: 999px;
+          transform: translate(-50%, -50%);
+          animation: burstWave 1.2s ease-out forwards;
+        }
+
+        .celebrationParticle {
+          position: absolute;
+          left: 0;
+          top: 0;
+          transform: translate(-50%, -50%);
+          animation: burstParticle var(--burst-duration) cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+          animation-delay: var(--burst-delay);
+          box-shadow: 0 0 6px rgba(0, 0, 0, 0.25);
+        }
+
+        @keyframes burstParticle {
+          0% {
+            opacity: 1;
+            transform: translate(-50%, -50%) rotate(var(--burst-rotate)) scale(0.7);
+          }
+          100% {
+            opacity: 0;
+            transform: translate(
+                calc(-50% + var(--burst-dx)),
+                calc(-50% + var(--burst-dy))
+              )
+              rotate(var(--burst-rotate)) scale(0.25);
+          }
+        }
+
+        @keyframes burstCore {
+          0% {
+            opacity: 0;
+            transform: translate(-50%, -50%) scale(0.4);
+          }
+          20% {
+            opacity: 1;
+            transform: translate(-50%, -50%) scale(1.15);
+          }
+          100% {
+            opacity: 0;
+            transform: translate(-50%, -50%) scale(1.55);
+          }
+        }
+
+        @keyframes burstWave {
+          0% {
+            opacity: 0.65;
+            transform: translate(-50%, -50%) scale(0.3);
+          }
+          100% {
+            opacity: 0;
+            transform: translate(-50%, -50%) scale(34);
+          }
+        }
+
+        @keyframes burstBadge {
+          0% {
+            opacity: 0;
+            transform: translate(-50%, calc(-50% + 42px)) scale(0.8);
+          }
+          20% {
+            opacity: 1;
+            transform: translate(-50%, calc(-50% + 54px)) scale(1);
+          }
+          100% {
+            opacity: 0;
+            transform: translate(-50%, calc(-50% + 70px)) scale(0.95);
+          }
+        }
+      `}</style>
     </section>
   );
 }
