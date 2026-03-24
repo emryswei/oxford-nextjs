@@ -514,7 +514,7 @@ function PdfReader({ filePath }: { filePath: string }) {
   }, []);
 
   return (
-    <section>
+    <section style={{ maxWidth: "1200px", margin: "0 auto" }}>
       <h2 style={{ marginBottom: "0.5rem" }}>PDF Preview (Backend Indexed)</h2>
       <p style={{ marginBottom: "0.75rem" }}>
         PDF text anchors are indexed by backend API for better scalability.
@@ -526,7 +526,12 @@ function PdfReader({ filePath }: { filePath: string }) {
         ref={containerRef}
         style={{
           position: "relative",
-          width: "100%",
+          width: "75%",
+          maxWidth: "980px",
+          margin: "0 auto",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
           border: "1px solid #ddd",
           overflow: "auto",
         }}

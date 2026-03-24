@@ -161,3 +161,21 @@
 | File | Type | Reason |
 | --- | --- | --- |
 | src/app/page.tsx | Modified | Start /api/pdf-index immediately, then wait on Promise.all([pdfLoad, indexFetch]) and apply base width/mapping together after both are ready. |
+
+---
+
+- Date: 2026-03-24 19:50:35 +08:00
+- Repository: D:/oxford-nextjs
+- Branch: master
+- Scope: pre-push review
+
+## Summary (Appended)
+
+- Total changed paths: 1
+- Change intent: Center PDF and canvas presentation area in layout.
+
+## File Changes (Current Working Tree)
+
+| File | Type | Reason |
+| --- | --- | --- |
+| src/app/page.tsx | Modified | Centered section/container with max width and auto margins so PDF/canvas block stays centered consistently. |
