@@ -179,3 +179,21 @@
 | File | Type | Reason |
 | --- | --- | --- |
 | src/app/page.tsx | Modified | Centered section/container with max width and auto margins so PDF/canvas block stays centered consistently. |
+
+---
+
+- Date: 2026-03-24 19:53:25 +08:00
+- Repository: D:/oxford-nextjs
+- Branch: master
+- Scope: pre-push review
+
+## Summary (Appended)
+
+- Total changed paths: 1
+- Change intent: Remove unwanted horizontal scrollbar in PDF container.
+
+## File Changes (Current Working Tree)
+
+| File | Type | Reason |
+| --- | --- | --- |
+| src/app/page.tsx | Modified | Use clientWidth for scale sync and force overflowX: hidden to prevent border/overlay-induced horizontal scrolling. |

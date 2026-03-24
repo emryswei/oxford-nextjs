@@ -261,7 +261,7 @@ function PdfReader({ filePath }: { filePath: string }) {
 
     let frameId = 0;
     const updateWidth = () => {
-      const width = Math.round(container.getBoundingClientRect().width);
+      const width = Math.round(container.clientWidth);
       setContainerWidth((current) => (current === width ? current : width));
     };
 
@@ -533,7 +533,8 @@ function PdfReader({ filePath }: { filePath: string }) {
           flexDirection: "column",
           alignItems: "center",
           border: "1px solid #ddd",
-          overflow: "auto",
+          overflowX: "hidden",
+          overflowY: "auto",
         }}
       >
         <canvas ref={canvasRef} style={{ display: "block", margin: "0 auto" }} />
