@@ -1,4 +1,4 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 import type { MatchRule } from "@/lib/pdf-interactions";
 import { buildPdfIndex } from "@/lib/server/pdf-indexer";
@@ -84,11 +84,13 @@ export async function POST(request: Request) {
     const filePath = body.filePath as string;
     const pageNumber = body.pageNumber ?? 1;
     const rules = body.rules as Array<{ id: string; match: MatchRule }>;
+    const baseUrl = new URL(request.url).origin;
 
     const result = await buildPdfIndex({
       filePath,
       pageNumber,
       rules,
+      baseUrl,
     });
 
     return NextResponse.json(result);

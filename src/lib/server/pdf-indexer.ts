@@ -72,6 +72,30 @@ function normalizePublicPath(filePath: string): string {
   return resolved;
 }
 
+function normalizePublicUrlPath(filePath: string): string {
+  const relative = filePath.startsWith("/") ? filePath.slice(1) : filePath;
+  const normalized = path.posix.normalize(relative.replaceAll("\\", "/"));
+  if (normalized.startsWith("../") || normalized === ".." || normalized.length === 0) {
+    throw new Error("Invalid file path.");
+  }
+  return `/${normalized}`;
+}
+
+async function loadPdfBytesFromStaticHost(filePath: string, baseUrl: string): Promise<Uint8Array> {
+  const safePublicPath = normalizePublicUrlPath(filePath);
+  const base = new URL(baseUrl);
+  const url = new URL(safePublicPath, base);
+  if (url.origin !== base.origin) {
+    throw new Error("Invalid file path.");
+  }
+
+  const response = await fetch(url.toString(), { cache: "force-cache" });
+  if (!response.ok) {
+    throw new Error(`Failed to load PDF from static host (${response.status}).`);
+  }
+  return new Uint8Array(await response.arrayBuffer());
+}
+
 function setMemoryCache(cacheKey: string, value: PdfIndexResult) {
   if (indexCache.has(cacheKey)) {
     indexCache.delete(cacheKey);
@@ -124,17 +148,18 @@ function findMatchIndices(source: string, target: string, wholeWord: boolean): n
   return indices;
 }
 
-function cacheKeyFor(filePath: string, pageNumber: number, rules: IndexRule[], mtimeMs: number): string {
+function cacheKeyFor(filePath: string, pageNumber: number, rules: IndexRule[], sourceVersion: string): string {
   const rulesHash = createHash("sha1").update(JSON.stringify(rules)).digest("hex");
-  return `${filePath}:${pageNumber}:${mtimeMs}:${rulesHash}`;
+  return `${filePath}:${pageNumber}:${sourceVersion}:${rulesHash}`;
 }
 
 export async function buildPdfIndex(params: {
   filePath: string;
   pageNumber: number;
   rules: IndexRule[];
+  baseUrl?: string;
 }): Promise<PdfIndexResult> {
-  const { filePath, pageNumber, rules } = params;
+  const { filePath, pageNumber, rules, baseUrl } = params;
 
   if (!filePath) {
     throw new Error("filePath is required.");
@@ -149,8 +174,22 @@ export async function buildPdfIndex(params: {
   }
 
   const absolutePath = normalizePublicPath(filePath);
-  const fileStat = await stat(absolutePath);
-  const cacheKey = cacheKeyFor(absolutePath, pageNumber, rules, fileStat.mtimeMs);
+  let cacheVersion = "0";
+  let useFilesystem = false;
+  try {
+    const fileStat = await stat(absolutePath);
+    cacheVersion = String(fileStat.mtimeMs);
+    useFilesystem = true;
+  } catch {
+    // In serverless deployments, public assets may not be readable from local fs.
+    // Fallback to static-host fetch if baseUrl is provided.
+    if (!baseUrl) {
+      throw new Error("PDF source is not available.");
+    }
+    cacheVersion = `static:${normalizePublicUrlPath(filePath)}`;
+  }
+
+  const cacheKey = cacheKeyFor(useFilesystem ? absolutePath : filePath, pageNumber, rules, cacheVersion);
 
   const cached = indexCache.get(cacheKey);
   if (cached) {
@@ -177,8 +216,9 @@ export async function buildPdfIndex(params: {
       // Fall back to in-memory cache path when DB is unavailable.
     }
 
-    const pdfData = await readFile(absolutePath);
-
+    const pdfData = useFilesystem
+      ? new Uint8Array(await readFile(absolutePath))
+      : await loadPdfBytesFromStaticHost(filePath, baseUrl as string);
     const workerModule = (await import("pdfjs-dist/legacy/build/pdf.worker.mjs")) as {
       WorkerMessageHandler: unknown;
     };
@@ -203,7 +243,7 @@ export async function buildPdfIndex(params: {
     };
 
     const loadingTask = pdfjsLib.getDocument({
-      data: new Uint8Array(pdfData),
+      data: pdfData,
       disableWorker: true,
     });
 
@@ -310,4 +350,6 @@ export async function buildPdfIndex(params: {
     inFlight.delete(cacheKey);
   }
 }
+
+
 
