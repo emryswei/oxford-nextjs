@@ -322,16 +322,6 @@ function PdfReader({ filePath }: { filePath: string }) {
       }
 
       try {
-        const pdfjsLib = (await import("pdfjs-dist")) as unknown as PdfJsModule;
-        pdfjsLibRef.current = pdfjsLib;
-        pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-          "pdfjs-dist/build/pdf.worker.min.mjs",
-          import.meta.url,
-        ).toString();
-
-        const loadingTask = pdfjsLib.getDocument(filePath);
-        pdfLoadingTaskRef.current = loadingTask;
-
         const indexPromise = fetch("/api/pdf-index", {
           method: "POST",
           headers: {
@@ -348,7 +338,16 @@ function PdfReader({ filePath }: { filePath: string }) {
           signal: abortController.signal,
         });
 
-        const pdf = await loadingTask.promise;
+        const pdfjsLib = (await import("pdfjs-dist")) as unknown as PdfJsModule;
+        pdfjsLibRef.current = pdfjsLib;
+        pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+          "pdfjs-dist/build/pdf.worker.min.mjs",
+          import.meta.url,
+        ).toString();
+
+        const loadingTask = pdfjsLib.getDocument(filePath);
+        pdfLoadingTaskRef.current = loadingTask;
+        const [pdf, indexResponse] = await Promise.all([loadingTask.promise, indexPromise]);
         if (!alive) {
           return;
         }
@@ -356,13 +355,10 @@ function PdfReader({ filePath }: { filePath: string }) {
 
         const page = await pdf.getPage(PAGE_NUMBER);
         const baseViewport = page.getViewport({ scale: 1 });
-        setBasePageWidth(baseViewport.width);
-        setDocumentVersion((value) => value + 1);
 
         let resolvedAnchorsByRuleId: Record<string, Anchor[]> = {};
 
         try {
-          const indexResponse = await indexPromise;
           if (indexResponse.ok) {
             const indexData = (await indexResponse.json()) as PdfIndexResponse;
             resolvedAnchorsByRuleId = indexData.anchorsByRuleId ?? {};
@@ -392,6 +388,8 @@ function PdfReader({ filePath }: { filePath: string }) {
         }
 
         setAnchorsByRuleId(resolvedAnchorsByRuleId);
+        setBasePageWidth(baseViewport.width);
+        setDocumentVersion((value) => value + 1);
       } catch (error) {
         if (!alive) {
           return;

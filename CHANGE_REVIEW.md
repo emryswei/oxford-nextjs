@@ -143,3 +143,21 @@
 | File | Type | Reason |
 | --- | --- | --- |
 | src/app/page.tsx | Modified | Decouple initial canvas render from /api/pdf-index latency and update interaction mapping without forced redraw once anchors arrive. |
+
+---
+
+- Date: 2026-03-24 19:21:15 +08:00
+- Repository: D:/oxford-nextjs
+- Branch: master
+- Scope: pre-push review
+
+## Summary (Appended)
+
+- Total changed paths: 1
+- Change intent: Ensure PDF and index complete in the same load phase while still starting index request as early as possible.
+
+## File Changes (Current Working Tree)
+
+| File | Type | Reason |
+| --- | --- | --- |
+| src/app/page.tsx | Modified | Start /api/pdf-index immediately, then wait on Promise.all([pdfLoad, indexFetch]) and apply base width/mapping together after both are ready. |
